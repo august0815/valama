@@ -78,6 +78,7 @@ namespace Guanako {
 
             universal_parameter = new CallParameter();
             universal_parameter.name = "@";
+            universal_parameter.universal = true;
 
             build_syntax_map();
         }
@@ -335,29 +336,30 @@ namespace Guanako {
                 type = ((Variable) smb).variable_type;
             if (smb is Method)
                 type = ((Method) smb).return_type;
-            /*if (type != null){
+            if (type != null){
                 if (arr && !type.is_array())
                     return false;
                 if (sng && type.is_array())
                     return false;
-            }*/
+            }
             return true;
         }
 
         class CallParameter {
             public int for_rule_id;
             public string name;
+            public bool universal = false;
 
             public Symbol[] symbols = new Symbol[0];// { get {return _symbol;} set {_symbol = value;}}
             //private Symbol[] _symbol = new Symbol[0];
 
             public void add_symbol(Symbol smb){
-                symbols = new Symbol[0];
+                //symbols = new Symbol[0];
                 symbols += smb;
-                //if (return_to_param != null)
-                //    return_to_param.add_symbol(smb);
+                if (return_to_param != null)
+                    return_to_param.add_symbol(smb);
             }
-            public void pass_on(int until_id){
+            /*public void pass_on(int until_id){
                 if (return_to_param != null){
                     //return_to_param.symbols = new Symbol[0];
                     if (for_rule_id == until_id)
@@ -368,7 +370,7 @@ namespace Guanako {
                         }
                     return_to_param.pass_on(until_id);
                 }
-            }
+            }*/
 
             public CallParameter? return_to_param = null;
         }
@@ -397,6 +399,7 @@ namespace Guanako {
         }
 
         Gee.ArrayList<CallParameter> clone_param_list (Gee.ArrayList<CallParameter> param){
+
             var ret = new Gee.ArrayList<CallParameter>();
             foreach (CallParameter p in param){
                 var new_param = new CallParameter();
@@ -406,17 +409,14 @@ namespace Guanako {
                     smblist += s;
                 new_param.symbols = smblist;
                 new_param.name = p.name;
-                //new_param.return_to_param = p.return_to_param;
+                new_param.universal = p.universal;
+                new_param.return_to_param = p.return_to_param;
                 ret.add(new_param);
             }
-            /*foreach (CallParameter r in ret){
+            foreach (CallParameter r in ret){
                 if (r.return_to_param != null){
                     r.return_to_param = find_param(ret, r.return_to_param.name, r.return_to_param.for_rule_id);
                 }
-            }*/
-            for (int q = 0; q < param.size; q++){
-                if (param[q].return_to_param != null)
-                    ret[q].return_to_param = find_param(ret, param[q].return_to_param.name, param[q].return_to_param.for_rule_id);
             }
             return ret;
         }
@@ -434,6 +434,8 @@ namespace Guanako {
              * values to written doesn't work
              */
             string written = written2;
+            if (written2.length == 0)
+                stdout.printf("===EMPTY WRITTEN STRING===\n");
 
             RuleExpression[] rule = new RuleExpression[compare_rule.length];
             for (int q = 0; q < rule.length; q++)
@@ -441,20 +443,24 @@ namespace Guanako {
             RuleExpression current_rule = rule[0];
 
             //Uncomment this to see every step the parser takes in a tree structure
-            /*string depth_string = "";
-            for (int q = 0; q < depth; q++)
+            string depth_string = "";
+            for (int q = 0; q < current_rule.rule_id; q++)
                 depth_string += " ";
+            //for (int q = 0; q < depth; q++)
+            //    depth_string += " ";
             stdout.printf ("\n" + depth_string + "Current rule: " + current_rule.expr + "\n");
-            stdout.printf (depth_string + "Written: " + written + "\n");*/
+            stdout.printf (depth_string + "Written: " + written + "\n");
 
             if (current_rule.expr.contains ("|")) {
                 var splt = current_rule.expr.split ("|");
                 bool retbool = false;
+                stdout.printf(depth_string + @"Splitting $(current_rule.expr)\n");
                 foreach (string s in splt) {
                     rule[0].expr = s;
                     var pass_call_params = clone_param_list(call_params);
                     var rets = new Gee.TreeSet<CompletionProposal>();
                     if (compare (rule, accessible, written, pass_call_params, depth + 1, ref rets)){
+                        stdout.printf(depth_string + @"  $s returned true\n");
                         retbool = true;
                         ret.add_all(rets);
                     }
@@ -516,15 +522,20 @@ namespace Guanako {
                     return false;
                 }
                 var children = new Symbol[0];
-                if (parent_param.symbols.length == 0)
-                    children = accessible;
-                else{
-                    bool resolve_array = false;
+                if (parent_param.universal){
+                    //children = accessible;
+                    foreach (Symbol acc in accessible){
+                        children += get_type_of_symbol (acc, false);
+                    }
+                }else{
+                    /*bool resolve_array = false;
                     if (binding != null)
                         if (binding.contains("arr_el"))
-                            resolve_array = true;
+                            resolve_array = true;*/
                     foreach (Symbol smb in parent_param.symbols){
-                        foreach (Symbol child in get_child_symbols (get_type_of_symbol (smb, resolve_array))){
+                        stdout.printf(depth_string + @"Parent: $(smb.name)\n");
+                        //foreach (Symbol child in get_child_symbols (get_type_of_symbol (smb, resolve_array))){
+                        foreach (Symbol child in get_child_symbols (smb)){
                             children += child;
                         }
                     }
@@ -544,7 +555,7 @@ namespace Guanako {
                                 continue;
                             }
                         if (word == child.name){
-                            var pass_call_params = clone_param_list(call_params);
+                            /*var pass_call_params = clone_param_list(call_params);
                             var child_param = find_param (pass_call_params, write_to_param, current_rule.rule_id);
                             if (child_param == null){
                                 child_param = new CallParameter();
@@ -554,8 +565,21 @@ namespace Guanako {
                             }
                             //child_param.symbols = new Symbol[0];
                             child_param.add_symbol(child);
-                            child_param.pass_on(-1);
-                            if (compare (rule[1:rule.length], accessible, rest, pass_call_params, depth + 1, ref ret)){
+                            child_param.pass_on(-1);*/
+                            var child_param = find_param (call_params, write_to_param, current_rule.rule_id);
+                            stdout.printf(depth_string + @"Found match $word\n");
+                            if (child_param == null){
+                                stdout.printf(depth_string + @"Creating parameter $write_to_param\n");
+                                child_param = new CallParameter();
+                                child_param.name = write_to_param;
+                                child_param.for_rule_id = current_rule.rule_id;
+                                call_params.add (child_param);
+                            }
+                            //child_param.symbols = new Symbol[0];
+                            child_param.add_symbol(get_type_of_symbol(child, binding.contains("arr_el")));
+                            var rets = new Gee.TreeSet<CompletionProposal>();
+                            if (compare (rule[1:rule.length], accessible, rest, call_params, depth + 1, ref rets)){
+                                ret.add_all(rets);
                                 stdout.printf(@"Pass on: $(current_rule.expr)\n");
                                 /*var orig_param = find_param (call_params, write_to_param, current_rule.rule_id);
                                 if (orig_param == null){
@@ -572,6 +596,7 @@ namespace Guanako {
                         }
                         if (rest == "" && child.name.has_prefix (word) && child.name.length > word.length){
                             ret.add (new CompletionProposal (child, word.length));
+                            stdout.printf(depth_string + @"Proposing $(child.name)\n");
                             retbool = true;
                         }
                     }
@@ -612,6 +637,7 @@ namespace Guanako {
                         return false;
                     }
                     child_param.symbols = param.symbols;
+                    child_param.universal = param.universal;
                     call_params.add (child_param);
 
                     if (ret_param != null){
@@ -645,6 +671,7 @@ namespace Guanako {
                 ret.add (new CompletionProposal (new Struct (current_rule.expr, null, null), written.length));
                 return true;
             }
+            stdout.printf (depth_string + "Drop through\n");
             return false;
         }
 
